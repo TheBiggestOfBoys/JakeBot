@@ -1,0 +1,14 @@
+def get_quote(filepath):
+    try:
+        print(f"Attempting to read file: {filepath}")
+        with open(filepath, 'r') as file:
+            quotes = file.readlines()
+            print(f"Quotes read from file: {quotes}")
+        if quotes:
+            return random.choice(quotes).strip()
+        else:
+            print("No quotes found in file.")
+            return None
+    except Exception as e:
+        print(f"Error reading quotes file: {e}")
+        return None
