@@ -1,6 +1,0 @@
-requests
-python-dotenv
-pyttsx3
-threading
-subprocess
-platform
