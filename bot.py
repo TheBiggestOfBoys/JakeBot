@@ -2,93 +2,63 @@ import os
 import random
 import requests
 import time
+import sys
 from dotenv import load_dotenv
 import pyttsx3
+import logging
 
+# Load environment variables
 load_dotenv()
 
-bot_id = os.getenv('BOT_ID')
-group_id = os.getenv('GROUP_ID')
-access_token = os.getenv('ACCESS_TOKEN')
+# Constants
+BOT_ID = os.getenv('BOT_ID')
+GROUP_ID = os.getenv('GROUP_ID')
+ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
+GROUPME_MESSAGES_URL = f'https://api.groupme.com/v3/groups/{GROUP_ID}/messages'
+GROUPME_POST_URL = 'https://api.groupme.com/v3/bots/post'
+REQUEST_PARAMS = {'token': ACCESS_TOKEN, 'limit': 1}
+DATA_DIR = 'Data'
+RESPONSE_TYPES = ['text', 'media', 'both']
+MEDIA_TYPES = ['images', 'gifs', 'videos']
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+# Message sending functions
 def send_message(text=None, image_url=None, video_url=None):
-    url = 'https://api.groupme.com/v3/bots/post'
-    payload = {
-        'bot_id': bot_id,
-        'text': text if text else ""
-    }
+    payload = {'bot_id': BOT_ID, 'text': text if text else ""}
     attachments = []
     if image_url:
-        attachments.append({
-            'type': 'image',
-            'url': image_url
-        })
+        attachments.append({'type': 'image', 'url': image_url})
     if video_url:
-        attachments.append({
-            'type': 'video',
-            'url': video_url
-        })
+        attachments.append({'type': 'video', 'url': video_url})
     if attachments:
         payload['attachments'] = attachments
     try:
-        response = requests.post(url, json=payload)
-        print(f"Response status code: {response.status_code}")
-        print(f"Response content: {response.content}")
+        response = requests.post(GROUPME_POST_URL, json=payload)
+        logging.info(f"Response status code: {response.status_code}")
+        logging.info(f"Response content: {response.content}")
         response.raise_for_status()
-        if text and (image_url or video_url):
-            print("Message sent: Text and Media")
-        elif text:
-            print("Message sent: Text only")
-        elif image_url or video_url:
-            print("Message sent: Media only")
-        return response.json()
+        if response.content:
+            return response.json()
+        else:
+            logging.info("Message sent successfully with no response body.")
+            return None
     except requests.exceptions.RequestException as e:
-        print(f"Error sending message: {e}")
+        logging.error(f"Error sending message: {e}")
         return None
 
 def get_latest_message():
-    url = f'https://api.groupme.com/v3/groups/{group_id}/messages'
-    params = {
-        'token': access_token,
-        'limit': 1
-    }
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(GROUPME_MESSAGES_URL, params=REQUEST_PARAMS)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error retrieving messages: {e}")
+        logging.error(f"Error retrieving messages: {e}")
         return None
 
-def get_line(filepath):
-    try:
-        print(f"Attempting to read file: {filepath}")
-        if not os.path.exists(filepath):
-            print(f"File does not exist: {filepath}")
-            return None
-        with open(filepath, 'r', encoding='utf-8') as file:
-            lines = [line.strip() for line in file.readlines()]
-            print("Read lines")
-        if lines:
-            return random.choice(lines)
-        else:
-            print("No lines found in file.")
-            return None
-    except Exception as e:
-        print(f"Error reading file: {e}")
-        return None
-
-def speak_text(text):
-    try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-        print(f"Spoken text: {text}")
-    except Exception as e:
-        print(f"Error speaking text: {e}")
-
-def listen_for_messages():
-    print("Listening for messages...")
+def listen_for_messages(response_percentage, pause_interval):
+    logging.info("Listening for messages...")
     last_message_id = None
     last_message_text = None
     while True:
@@ -100,47 +70,101 @@ def listen_for_messages():
                 last_message_id = message['id']
                 if message['sender_type'] == 'user':
                     if current_message_text != last_message_text:
-                        print(f"New message: {current_message_text}")
+                        logging.info(f"New message: {current_message_text}")
                         last_message_text = current_message_text
-                    if random.random() < 0.5:
-                        print("Sending message")
+                    if random.random() < response_percentage:
+                        logging.info("Sending message")
                         quote = None
                         media_url = None
 
-                        response_type = random.choice(['text', 'media', 'both'])
+                        response_type = random.choice(RESPONSE_TYPES)
                         if response_type in ['text', 'both']:
-                            quote = get_line('Data/quotes.txt')
-                            print(f"Retrieved quote: {quote}")
+                            quote = get_line(os.path.join(DATA_DIR, 'quotes.txt'))
+                            logging.info(f"Retrieved quote: {quote}")
 
                         if response_type in ['media', 'both']:
-                            media_type_choice = random.choice(['images', 'gifs', 'videos'])
-                            if media_type_choice == 'images':
-                                media_links_path = 'Data/images.txt'
-                            elif media_type_choice == 'gifs':
-                                media_links_path = 'Data/gifs.txt'
-                            elif media_type_choice == 'videos':
-                                media_links_path = 'Data/videos.txt'
+                            media_type_choice = random.choice(MEDIA_TYPES)
+                            media_links_path = os.path.join(DATA_DIR, f"{media_type_choice}.txt")
                             media_url = get_line(media_links_path)
-                            print(f"Retrieved media URL: {media_url}")
+                            logging.info(f"Retrieved media URL: {media_url}")
 
                         if quote or media_url:
                             if response_type == 'text':
-                                print("Sending text only")
+                                logging.info("Sending text only")
                                 send_message(text=quote)
                                 speak_text(quote)
                             elif response_type == 'media':
-                                print("Sending media only")
+                                logging.info("Sending media only")
                                 send_message(image_url=media_url if media_type_choice in ['images', 'gifs'] else None,
                                              video_url=media_url if media_type_choice == 'videos' else None)
                             elif response_type == 'both':
-                                print("Sending text and media")
+                                logging.info("Sending text and media")
                                 send_message(text=quote,
                                              image_url=media_url if media_type_choice in ['images', 'gifs'] else None,
                                              video_url=media_url if media_type_choice == 'videos' else None)
                                 speak_text(quote)
-                                
-                        print()
-        time.sleep(1)
+        time.sleep(pause_interval)
+
+def get_line(filepath):
+    try:
+        logging.info(f"Attempting to read file: {filepath}")
+        if not os.path.exists(filepath):
+            logging.warning(f"File does not exist: {filepath}")
+            return None
+        with open(filepath, 'r', encoding='utf-8') as file:
+            lines = [line.strip() for line in file.readlines()]
+        if lines:
+            return random.choice(lines)
+        else:
+            logging.warning(f"No lines found in file: {filepath}")
+            return None
+    except Exception as e:
+        logging.error(f"Error reading file: {e}")
+        return None
+
+def speak_text(text):
+    try:
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        logging.info(f"Spoken text: {text}")
+    except Exception as e:
+        logging.error(f"Error speaking text: {e}")
+        
+# Fun Functions
+def hardly_know_her(word):
+	if (word.__contains__("er")):
+		print(word + " her, I hardly know her!")
+        
+def quotify(string):
+    words = string.split()
+    temp = ""
+    for word in words:
+        if (random.random() < 0.35):
+            temp += '"' + word + '" '
+        else:
+            temp += word + ' '
+    return temp
 
 if __name__ == '__main__':
-    listen_for_messages()
+    try:
+        # Parse command-line arguments
+        if len(sys.argv) != 3:
+            print("Usage: python bot.py <response_percentage> <pause_interval>")
+            sys.exit(1)
+
+        response_percentage = float(sys.argv[1])
+        pause_interval = int(sys.argv[2])
+
+        # Validate arguments
+        if not (0.0 <= response_percentage <= 1.0):
+            print("Error: response_percentage must be between 0.0 and 1.0")
+            sys.exit(1)
+        if pause_interval <= 0:
+            print("Error: pause_interval must be a positive integer")
+            sys.exit(1)
+
+        # Start the bot
+        listen_for_messages(response_percentage, pause_interval)
+    except KeyboardInterrupt:
+        logging.info("Bot stopped.")
