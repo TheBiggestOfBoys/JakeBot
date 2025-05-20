@@ -40,11 +40,11 @@ def upload_folder(folder_path):
         image_path = os.path.join(folder_path, file_name)
         image_url = upload_image(image_path)
         if image_url:
-            append_to_file('uploaded images.txt', image_url + '\n')
+            append_to_file("uploaded images.txt", image_url)
 
 def append_to_file(file_path, text):
     with open(file_path, 'a') as file:
-        file.writelines(text)
+        file.writeline(text + '\n')
 
 if __name__ == '__main__':
     print("1. Upload an image from file")
