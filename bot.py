@@ -80,11 +80,11 @@ def listen_for_messages(response_percentage, pause_interval):
                         blank_her_word = check_for_er(last_message_text)
                         if blank_her_word is not None:
                             logging.info("BLANK HER!?!")
-                            quote = blank_her(last_message_text)
+                            quote = blank_her(blank_her_word)
                             response_type = 'text'
 
                         elif random.random() < 0.25:
-                            logging.info("GETTING QUOTIFIED")
+                            logging.info('GETTING "QUOTIFIED"')
                             quote = quotify(last_message_text, 0.25)
                             respnse_type = 'text'
                         
@@ -148,12 +148,12 @@ def check_for_er(text):
     words = text.split()
     for word in words:
         if (word[-2:] == "er"):
-            return word
+            return word[:-2]
         else:
             ending_chars = [',', ' ', '.', '!', '?']
             for char in ending_chars:
                 if word[-3:] == "er" + char:
-                    return word
+                    return word[:-3]
     return None
 
 def blank_her(word):
