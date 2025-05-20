@@ -401,6 +401,7 @@ FodyWeavers.xsd
 
 # Custom Stuff
 .env
+uploaded images.txt
 
 # Ignore image files
 *.png
