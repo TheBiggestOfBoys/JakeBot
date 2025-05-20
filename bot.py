@@ -76,17 +76,27 @@ def listen_for_messages(response_percentage, pause_interval):
                         logging.info("Sending message")
                         quote = None
                         media_url = None
+                        
+                        blank_her_word = check_for_er(lastmessage_text)
+                        if blank_her_word is not None:
+                            quote = blank_her(last_message_text)
+                            response_type = 'text'
 
-                        response_type = random.choice(RESPONSE_TYPES)
-                        if response_type in ['text', 'both']:
-                            quote = get_line(os.path.join(DATA_DIR, 'quotes.txt'))
-                            logging.info(f"Retrieved quote: {quote}")
+                        elif random.random() < 0.25:
+                            quote = quotify(last_message_text)
+                            respnse_type = 'text'
+                        
+                        else:
+                            response_type = random.choice(RESPONSE_TYPES)
+                            if response_type in ['text', 'both']:
+                                quote = get_line(os.path.join(DATA_DIR, 'quotes.txt'))
+                                logging.info(f"Retrieved quote: {quote}")
 
-                        if response_type in ['media', 'both']:
-                            media_type_choice = random.choice(MEDIA_TYPES)
-                            media_links_path = os.path.join(DATA_DIR, f"{media_type_choice}.txt")
-                            media_url = get_line(media_links_path)
-                            logging.info(f"Retrieved media URL: {media_url}")
+                            if response_type in ['media', 'both']:
+                                media_type_choice = random.choice(MEDIA_TYPES)
+                                media_links_path = os.path.join(DATA_DIR, f"{media_type_choice}.txt")
+                                media_url = get_line(media_links_path)
+                                logging.info(f"Retrieved media URL: {media_url}")
 
                         if quote or media_url:
                             if response_type == 'text':
@@ -132,15 +142,21 @@ def speak_text(text):
         logging.error(f"Error speaking text: {e}")
         
 # Fun Functions
-def hardly_know_her(word):
-	if (word.__contains__("er")):
-		print(word + " her, I hardly know her!")
+def check_for_er(text):
+    words = text.split()
+    for word in words:
+        if (word[-2:-1] == "er"):
+		    return word
+    return None
+
+def blank_her(word):
+    return f"{word} her?  I hardly know her!"
         
-def quotify(string):
+def quotify(string, quotyness):
     words = string.split()
     temp = ""
     for word in words:
-        if (random.random() < 0.35):
+        if (random.random() < quotyness):
             temp += '"' + word + '" '
         else:
             temp += word + ' '
