@@ -26,27 +26,27 @@ logging.basicConfig(level=logging.INFO)
 
 # Message sending functions
 def send_message(text=None, image_url=None, video_url=None):
-    payload = {'bot_id': BOT_ID, 'text': text if text else ""}
-    attachments = []
-    if image_url:
-        attachments.append({'type': 'image', 'url': image_url})
-    if video_url:
-        attachments.append({'type': 'video', 'url': video_url})
-    if attachments:
-        payload['attachments'] = attachments
-    try:
-        response = requests.post(GROUPME_POST_URL, json=payload)
-        logging.info(f"Response status code: {response.status_code}")
-        logging.info(f"Response content: {response.content}")
-        response.raise_for_status()
-        if response.content:
-            return response.json()
-        else:
-            logging.info("Message sent successfully with no response body.")
-            return None
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error sending message: {e}")
-        return None
+	payload = {'bot_id': BOT_ID, 'text': text if text else ""}
+	attachments = []
+	if image_url:
+		attachments.append({'type': 'image', 'url': image_url})
+	if video_url:
+		attachments.append({'type': 'video', 'url': video_url})
+	if attachments:
+		payload['attachments'] = attachments
+	try:
+		response = requests.post(GROUPME_POST_URL, json=payload)
+		logging.info(f"Response status code: {response.status_code}")
+		logging.info(f"Response content: {response.content}")
+		response.raise_for_status()
+		if response.content:
+			return response.json()
+		else:
+			logging.info("Message sent successfully with no response body.")
+			return None
+	except requests.exceptions.RequestException as e:
+		logging.error(f"Error sending message: {e}")
+		return None
 
 def get_latest_message():
     try:
@@ -146,7 +146,7 @@ def check_for_er(text):
     words = text.split()
     for word in words:
         if (word[-2:-1] == "er"):
-		    return word
+            return word
     return None
 
 def blank_her(word):
