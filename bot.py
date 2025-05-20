@@ -73,17 +73,19 @@ def listen_for_messages(response_percentage, pause_interval):
                         logging.info(f"New message: {current_message_text}")
                         last_message_text = current_message_text
                     if random.random() < response_percentage:
-                        logging.info("Sending message")
+                        logging.info("Sending Message")
                         quote = None
                         media_url = None
                         
-                        blank_her_word = check_for_er(lastmessage_text)
+                        blank_her_word = check_for_er(last_message_text)
                         if blank_her_word is not None:
+                            logging.info("BLANK HER!?!")
                             quote = blank_her(last_message_text)
                             response_type = 'text'
 
                         elif random.random() < 0.25:
-                            quote = quotify(last_message_text)
+                            logging.info("GETTING QUOTIFIED")
+                            quote = quotify(last_message_text, 0.25)
                             respnse_type = 'text'
                         
                         else:
@@ -145,8 +147,13 @@ def speak_text(text):
 def check_for_er(text):
     words = text.split()
     for word in words:
-        if (word[-2:-1] == "er"):
+        if (word[-2:] == "er"):
             return word
+        else:
+            ending_chars = [',', ' ', '.', '!', '?']
+            for char in ending_chars:
+                if word[-3:] == "er" + char:
+                    return word
     return None
 
 def blank_her(word):
