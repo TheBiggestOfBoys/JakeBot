@@ -44,7 +44,7 @@ def upload_folder(folder_path):
 
 def append_to_file(file_path, text):
     with open(file_path, 'a') as file:
-        file.writeline(text + '\n')
+        file.writelines(text + '\n')
 
 if __name__ == '__main__':
     print("1. Upload an image from file")

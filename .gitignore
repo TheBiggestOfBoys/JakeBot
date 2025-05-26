@@ -402,6 +402,7 @@ FodyWeavers.xsd
 # Custom Stuff
 .env
 uploaded images.txt
+.vscode/
 
 # Ignore image files
 *.png
