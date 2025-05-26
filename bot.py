@@ -176,21 +176,6 @@ def get_latest_message():
 #endregion
 
 #region Main Bot Logic
-def like_message(message_id):
-    """
-    Likes a message in the group using the bot's access token.
-    """
-    url = f"https://api.groupme.com/v3/messages/{GROUP_ID}/{message_id}/like"
-    params = {"token": ACCESS_TOKEN}
-    try:
-        response = requests.post(url, params=params)
-        logging.info(f"Liked message {message_id}: {response.status_code}")
-        response.raise_for_status()
-        return True
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error liking message: {e}")
-        return False
-
 def listen_for_messages(response_percentage, pause_interval, like_percentage=0.7):
     last_message_id = None
     last_message_text = None
@@ -207,10 +192,6 @@ def listen_for_messages(response_percentage, pause_interval, like_percentage=0.7
                     if current_message_text != last_message_text:
                         last_message_text = current_message_text
                         last_user_id = current_user_id
-
-                        # Randomly like the message with a higher probability
-                        if random.random() < like_percentage:
-                            like_message(last_message_id)
 
                         # Randomly decide to respond
                         if random.random() < response_percentage:
