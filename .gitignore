@@ -403,6 +403,9 @@ FodyWeavers.xsd
 .env
 uploaded images.txt
 .vscode/
+.venv/
+*.mp4
+*.zip
 
 # Ignore image files
 *.png

@@ -1,171 +1,240 @@
+"""
+GroupMe Bot Server (Python)
+---------------------------
+Responds to GroupMe messages with random quotes, media, or user callouts.
+
+Features:
+- Polls for latest messages (no webhooks needed).
+- Randomly replies to messages with configurable probability.
+- "Hardly know her" jokes for words ending in 'er'.
+- Quotify feature that puts random quotes around words.
+- User callouts and mentions.
+- Can reply to specific messages.
+
+Environment Variables:
+- BOT_ID: The GroupMe Bot ID (required).
+- GROUP_ID: The GroupMe Group ID (required for user tagging).
+- ACCESS_TOKEN: Your GroupMe user access token (required for user tagging).
+"""
+
 import os
 import random
 import requests
 import time
 import sys
+import re
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-import pyttsx3
 import logging
 
-#region Constants
+# region Constants
 load_dotenv()
 BOT_ID = os.getenv('BOT_ID')
 GROUP_ID = os.getenv('GROUP_ID')
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
-GROUPME_MESSAGES_URL = f'https://api.groupme.com/v3/groups/{GROUP_ID}/messages'
 GROUPME_POST_URL = 'https://api.groupme.com/v3/bots/post'
+GROUPME_MESSAGES_URL = f'https://api.groupme.com/v3/groups/{GROUP_ID}/messages'
 REQUEST_PARAMS = {'token': ACCESS_TOKEN, 'limit': 1}
 DATA_DIR = 'Data'
-RESPONSE_TYPES = ['text', 'media', 'both']
 MEDIA_TYPES = ['images', 'gifs', 'videos']
+
+# Probability settings
+RESPONSE_PROBABILITY = float(os.getenv('RESPONSE_PROBABILITY', 0.05))
+QUOTIFY_PROBABILITY = float(os.getenv('QUOTIFY_PROBABILITY', 0.025))
+HARDLY_KNOW_HER_PROBABILITY = float(os.getenv('HARDLY_KNOW_HER_PROBABILITY', 0.1))
+CALLOUT_PROBABILITY = float(os.getenv('CALLOUT_PROBABILITY', 0.08))
+INCLUDE_TEXT_PROBABILITY = float(os.getenv('INCLUDE_TEXT_PROBABILITY', 0.5))
+INCLUDE_MEDIA_PROBABILITY = float(os.getenv('INCLUDE_MEDIA_PROBABILITY', 0.5))
+INCLUDE_MENTION_PROBABILITY = float(os.getenv('INCLUDE_MENTION_PROBABILITY', 0.5))
+
 logging.basicConfig(level=logging.INFO)
 
-# Name to User ID mapping
-NAME_TO_USER_ID = {
-    "Noah Davelaar": "57383311",
-    "Zeke Roher": "94102137",
-    "Carter Steele": "122250018",
-    "Kyle Dagman": "124700938",
-    "Caleb Schwartz": "106705486",
-    "Marcus Bradley": "110543789",
-    "Gavin Harris": "99314407",
-    "Will Norris": "106903726",
-    "Peter Andrulis": "124821503",
-    "Joey Heaston": "74159751",
-    "Levin Smith": "125014222",
-    "Caleb Black": "92588534",
-    "Solomon Campbell": "88670721",
-    "Seth Reed": "115839177",
-    "Carter Newman": "121600369",
-    "Sam Hryszczuk": "124899656",
-    "Eli King": "87748624",
-    "Benjamin Magana": "89586028",
-    "Nate Taylor": "125034801",
-    "Brennan Miller": "124263586",
-    "Dylan VanderGoot": "121758820",
-    "Kyle Thomas": "114408323",
-    "Sergio Membreno": "112464651",
-    "David Zgarta": "96448587",
-    "Daniel Bishop": "116366778",
-    "Isaac Terrell": "116455020",
-    "Noah Lien": "119550369",
-    "Jared Shafer": "50056945",
-    "Keegan Matheson": "50494264",
-    "Samuel Maurer": "82242542",
-    "Tavin Reeves": "57580921",
-    "Erik Allen": "54236065",
-    "Caleb Bell": "96325934",
-    "John Kuligowski": "95688396",
-    "Matt Snyder": "105606685",
-    "Micah Smith": "105606686",
-    "Mark Lee": "88853984",
-    "Elijah Ladd": "101124613",
-    "Garrett Vandermark": "105606687",
-    "Logan Trier": "105599421",
-    "Coby Peters": "88960626",
-    "Owen Slayton": "94391709",
-    "Garrett Vandermark": "80207822",
-    "Kyle Hirschelman": "105616963",
-    "Joshua Blume": "105623144",
-    "Tommy Walatka": "62180191",
-    "Darin Jordan": "72134982",
-    "Dayton Molendorp": "91815787",
-    "Wyatt Atzhorn": "112826040",
-    "Josh Benson": "87824796",
-    "Case Anderson": "75172758",
-    "Max Burger": "104007656",
-    "Gabriel Osborn": "55685227",
-    "Ethan Occhipinti": "116348050",
-    "Mitchell Melfe": "101458043",
-    "Nick Cavey": "73636638",
-    "David Castro": "116407125",
-    "Jake Scott": "74617923",
-    "Martin Didier": "61090418",
-    "Elijah Pennington": "88265724",
-    "Miguel Salcedo": "105332694"
-}
+# Cache for group members
+members_cache = None
+cache_expiry = None
+CACHE_DURATION = timedelta(hours=1)
+# endregion
 
-USER_ID_TO_NAME = {uid: name for name, uid in NAME_TO_USER_ID.items()}
-#endregion
-
-#region Message Sending Functions
-def send_message(text=None, image_url=None, video_url=None, user_id=None, reply_id=None):
-    """
-    Send a message with optional text, image, video, mention, and reply.
-    At least one of text, image_url, or video_url must be provided.
-    For video, attaches a preview_url (video_url with .jpg extension).
-    """
-    if not any([text, image_url, video_url]):
-        logging.warning("send_message called with no content. Aborting send.")
+# region Member Management
+def get_group_members():
+    """Fetches group members from GroupMe API with caching."""
+    global members_cache, cache_expiry
+    
+    if members_cache and cache_expiry and datetime.now() < cache_expiry:
+        return members_cache
+    
+    if not GROUP_ID or not ACCESS_TOKEN:
+        logging.warning('GROUP_ID and ACCESS_TOKEN required for user tagging')
+        return None
+    
+    try:
+        logging.info('Fetching group members from API...')
+        response = requests.get(
+            f'https://api.groupme.com/v3/groups/{GROUP_ID}/members',
+            params={'token': ACCESS_TOKEN}
+        )
+        
+        if response.status_code != 200:
+            logging.error(f'GroupMe API Error: {response.status_code}')
+            return None
+        
+        data = response.json()
+        if data.get('meta', {}).get('code') != 200:
+            logging.error(f'GroupMe API Error: {data.get("meta")}')
+            return None
+        
+        members_cache = data.get('response', {}).get('members', [])
+        cache_expiry = datetime.now() + CACHE_DURATION
+        
+        logging.info(f'Loaded {len(members_cache)} group members')
+        return members_cache
+        
+    except Exception as e:
+        logging.error(f'Error fetching group members: {e}')
         return None
 
+def get_random_member():
+    """Gets a random group member."""
+    members = get_group_members()
+    return random.choice(members) if members else None
+
+def get_member_by_id(user_id):
+    """Gets member info by user ID."""
+    members = get_group_members()
+    if not members:
+        return None
+    
+    for member in members:
+        if member.get('user_id') == user_id:
+            return member
+    return None
+# endregion
+
+# region File Utilities
+def get_random_line_from_file(filename):
+    """Returns a random line from a text file."""
+    try:
+        filepath = os.path.join(DATA_DIR, filename)
+        if not os.path.exists(filepath):
+            return None
+            
+        with open(filepath, 'r', encoding='utf-8') as file:
+            lines = [line.strip() for line in file if line.strip()]
+        
+        return random.choice(lines) if lines else None
+    except Exception as e:
+        logging.error(f"Error reading {filename}: {e}")
+        return None
+
+def get_random_media(media_type):
+    """Returns a random media URL from the specified file."""
+    return get_random_line_from_file(f"{media_type}.txt")
+
+def get_random_quote():
+    """Returns a random quote from quotes.txt."""
+    return get_random_line_from_file('quotes.txt')
+# endregion
+
+# region Text Processing
+def quotify(text, quotyness):
+    """Randomly puts quotes around words in text."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    
+    words = text.split()
+    changed = False
+    quotified = []
+    
+    for word in words:
+        if random.random() < quotyness:
+            changed = True
+            quotified.append(f'"{word}"')
+        else:
+            quotified.append(word)
+    
+    return ' '.join(quotified) if changed else None
+
+def hardly_know_her(text):
+    """Creates 'hardly know her' jokes from words ending in 'er'."""
+    if not isinstance(text, str):
+        return None
+    
+    match = re.search(r'(\w+)er\b', text, re.IGNORECASE)
+    if match:
+        base = match.group(1)
+        if match.group(0)[0].isupper():
+            base = base.capitalize()
+        return f"{base} her? I hardly know her!"
+    
+    return None
+# endregion
+
+# region Message Sending
+def send_message(text=None, image_url=None, video_url=None, user_id=None, reply_id=None, extra_attachments=None):
+    """Sends a message to GroupMe using the bot API."""
+    if not any([text, image_url, video_url, extra_attachments]):
+        return None
+    
     payload = {'bot_id': BOT_ID, 'text': text or ""}
     attachments = []
-
+    
     if image_url:
         attachments.append({'type': 'image', 'url': image_url})
-    if video_url:
-        if video_url.endswith('.mp4'):
-            # Replace domain and extension for preview_url
-            preview_url = video_url[:-3] + 'jpg'
-            attachments.append({'type': 'video', 'url': video_url, 'preview_url': preview_url})
-        else:
-            logging.warning("Video URL does not end with .mp4, skipping video.")
+    
+    if video_url and video_url.endswith('.mp4'):
+        preview_url = video_url.replace('v.groupme.com', 'i.groupme.com')[:-4] + '.jpg'
+        attachments.append({'type': 'video', 'url': video_url, 'preview_url': preview_url})
+    
     if user_id:
-        user_name = USER_ID_TO_NAME.get(user_id, "user")
+        member = get_member_by_id(user_id)
+        user_name = member.get('nickname', 'user') if member else 'user'
         mention_text = f"@{user_name}"
-        # Always start the message with the mention
-        if payload['text']:
-            payload['text'] = f"{mention_text} {payload['text']}"
-        else:
-            payload['text'] = mention_text
-        # loci: [[start_index, length of mention]]
+        payload['text'] = f"{mention_text} {payload['text']}" if payload['text'] else mention_text
         attachments.append({
             "type": "mentions",
             "user_ids": [user_id],
             "loci": [[0, len(mention_text)]]
         })
+    
     if reply_id:
         attachments.append({
             "type": "reply",
             "reply_id": reply_id,
             "base_reply_id": reply_id
         })
+    
+    if extra_attachments:
+        attachments.extend(extra_attachments)
+    
     if attachments:
         payload['attachments'] = attachments
-
+    
     try:
+        # Print what we're about to send
+        print(f"📤 SENDING MESSAGE: {payload['text'][:100]}{'...' if len(payload['text']) > 100 else ''}")
+        if attachments:
+            attachment_types = [att.get('type', 'unknown') for att in attachments]
+            print(f"   With attachments: {', '.join(attachment_types)}")
+        
         response = requests.post(GROUPME_POST_URL, json=payload)
-        logging.info(f"Status: {response.status_code}, Content: {response.content}")
+        logging.info(f"Status: {response.status_code}")
+        
+        if response.status_code == 202:
+            print(f"✅ MESSAGE SENT SUCCESSFULLY")
+        else:
+            print(f"❌ MESSAGE FAILED: Status {response.status_code}")
+            
         response.raise_for_status()
-        return response.json() if response.content else None
+        return response.json() if response.text else None
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending message: {e}")
+        print(f"❌ SEND ERROR: {e}")
         return None
-#endregion
+# endregion
 
-#region Utility Functions
-def get_random_line(filepath):
-    try:
-        if not os.path.exists(filepath):
-            logging.warning(f"File does not exist: {filepath}")
-            return None
-        with open(filepath, 'r', encoding='utf-8') as file:
-            lines = [line.strip() for line in file if line.strip()]
-        return random.choice(lines) if lines else None
-    except Exception as e:
-        logging.error(f"Error reading file: {e}")
-        return None
-
-def speak_text(text):
-    try:
-        engine = pyttsx3.init()
-        engine.say(text)
-        engine.runAndWait()
-    except Exception as e:
-        logging.error(f"Error speaking text: {e}")
-        
+# region Message Polling
 def get_latest_message():
+    """Gets the latest message from the group."""
     try:
         response = requests.get(GROUPME_MESSAGES_URL, params=REQUEST_PARAMS)
         response.raise_for_status()
@@ -173,13 +242,108 @@ def get_latest_message():
     except requests.exceptions.RequestException as e:
         logging.error(f"Error retrieving messages: {e}")
         return None
-#endregion
 
-#region Main Bot Logic
-def listen_for_messages(response_percentage, pause_interval, like_percentage=0.7):
+def process_message(message):
+    """Processes a message and decides whether to respond."""
+    if message.get('sender_type') == 'bot':
+        return
+    
+    message_text = message.get('text', '')
+    message_id = message.get('id')
+    sender_name = message.get('name', 'Unknown')
+    
+    # Print received message
+    print(f"📥 RECEIVED MESSAGE from {sender_name}: {message_text[:100]}{'...' if len(message_text) > 100 else ''}")
+    
+    # Check for "hardly know her" jokes
+    if message_text:
+        hkh = hardly_know_her(message_text)
+        if hkh and random.random() < HARDLY_KNOW_HER_PROBABILITY:
+            print(f"🎭 Responding with 'hardly know her' joke")
+            send_message(text=hkh, reply_id=message_id)
+            return
+    
+    # Check for quotify
+    if random.random() < QUOTIFY_PROBABILITY and message_text:
+        quotified = quotify(message_text, 0.25)
+        if quotified:
+            print(f"📝 Responding with quotified message")
+            send_message(text=quotified, reply_id=message_id)
+            return
+    
+    # Normal random responses
+    if random.random() < RESPONSE_PROBABILITY:
+        print(f"🎲 Randomly responding to message")
+        include_text = random.random() < INCLUDE_TEXT_PROBABILITY
+        include_media = random.random() < INCLUDE_MEDIA_PROBABILITY
+        include_mention = random.random() < INCLUDE_MENTION_PROBABILITY
+        callout_user = random.random() < CALLOUT_PROBABILITY
+        
+        # Ensure at least one content type
+        if not include_text and not include_media:
+            if random.random() < 0.5:
+                include_text = True
+            else:
+                include_media = True
+        
+        text = None
+        image_url = None
+        video_url = None
+        attachments = []
+        
+        if callout_user:
+            # Call out a random user
+            random_member = get_random_member()
+            if random_member:
+                nickname = random_member.get('nickname', 'user')
+                user_id = random_member.get('user_id')
+                text = f"@{nickname}, I'm calling you out!"
+                attachments.append({
+                    "type": "mentions",
+                    "user_ids": [user_id],
+                    "loci": [[0, len(f"@{nickname}")]]
+                })
+                
+                print(f"👀 Calling out user: {nickname}")
+                send_message(text=text, reply_id=message_id, extra_attachments=attachments)
+                return
+        
+        # Normal response
+        if include_text:
+            text = get_random_quote()
+        
+        if include_media:
+            media_type = random.choice(MEDIA_TYPES)
+            media_url = get_random_media(media_type)
+            if media_type in ['images', 'gifs']:
+                image_url = media_url
+            else:
+                video_url = media_url
+        
+        mention_user_id = None
+        if include_mention:
+            random_member = get_random_member()
+            mention_user_id = random_member.get('user_id') if random_member else None
+        
+        if text or image_url or video_url or attachments:
+            send_message(
+                text=text,
+                image_url=image_url,
+                video_url=video_url,
+                user_id=mention_user_id,
+                reply_id=message_id,
+                extra_attachments=attachments if attachments else None
+            )
+    else:
+        print(f"🔇 Not responding (random chance)")
+
+def listen_for_messages(response_percentage, pause_interval):
+    """Main loop that polls for new messages."""
     last_message_id = None
     last_message_text = None
-    last_user_id = None  # Store the last user_id for mentioning
+    
+    print(f"🤖 Bot started! Polling every {pause_interval}s with {response_percentage*100}% response rate")
+    
     while True:
         last_message = get_latest_message()
         if last_message and 'response' in last_message and 'messages' in last_message['response']:
@@ -188,61 +352,33 @@ def listen_for_messages(response_percentage, pause_interval, like_percentage=0.7
                 last_message_id = message['id']
                 if message['sender_type'] == 'user':
                     current_message_text = message['text']
-                    current_user_id = message.get('user_id')
                     if current_message_text != last_message_text:
                         last_message_text = current_message_text
-                        last_user_id = current_user_id
-
-                        # Randomly decide to respond
-                        if random.random() < response_percentage:
-                            include_text = random.choice([True, False])
-                            include_media = random.choice([True, False])
-                            include_mention = random.choice([True, False])
-
-                            # Ensure at least one content type is included
-                            if not include_text and not include_media:
-                                if random.choice([True, False]):
-                                    include_text = True
-                                else:
-                                    include_media = True
-
-                            text = None
-                            image_url = None
-                            video_url = None
-
-                            if include_text:
-                                text = get_random_line(os.path.join(DATA_DIR, 'quotes.txt'))
-
-                            if include_media:
-                                media_type = random.choice(MEDIA_TYPES)
-                                media_url = get_random_line(os.path.join(DATA_DIR, f"{media_type}.txt"))
-                                if media_type in ['images', 'gifs']:
-                                    image_url = media_url
-                                else:
-                                    video_url = media_url
-
-                            mention_user_id = last_user_id if include_mention else None
-
-                            if text or image_url or video_url:
-                                send_message(
-                                    text=text,
-                                    image_url=image_url,
-                                    video_url=video_url,
-                                    user_id=mention_user_id,
-                                    reply_id=last_message_id
-                                )
-                                if text:
-                                    speak_text(text)
+                        
+                        # Override the global RESPONSE_PROBABILITY with the passed parameter
+                        global RESPONSE_PROBABILITY
+                        original_prob = RESPONSE_PROBABILITY
+                        RESPONSE_PROBABILITY = response_percentage
+                        
+                        process_message(message)
+                        
+                        # Restore original probability
+                        RESPONSE_PROBABILITY = original_prob
+                else:
+                    print(f"🤖 Ignoring bot message")
+        
         time.sleep(pause_interval)
-#endregion
+# endregion
 
-#region Entry Point
+# region Entry Point
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("Usage: python bot.py <response_percentage> <pause_interval> [like_percentage]")
+        print("Usage: python bot.py <response_percentage> <pause_interval>")
         sys.exit(1)
+    
     response_percentage = float(sys.argv[1])
     pause_interval = int(sys.argv[2])
-    like_percentage = float(sys.argv[3]) if len(sys.argv) > 3 else 0.7
-    listen_for_messages(response_percentage, pause_interval, like_percentage)
-#endregion
+    
+    logging.info(f'Bot starting with {response_percentage*100}% response rate, {pause_interval}s interval')
+    listen_for_messages(response_percentage, pause_interval)
+# endregion
